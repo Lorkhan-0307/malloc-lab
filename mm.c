@@ -69,6 +69,8 @@ team_t team = {
 
 static char * heap_list_p;
 
+static char * next_fit_p;
+
 static void *extend_heap(size_t words);
 static void *coalesce(void *bp);
 static void *find_fit(size_t adjusted_size);
@@ -92,6 +94,7 @@ int mm_init(void)
     heap_list_p += (2*WSIZE); // prologue header와 footer 사이로 포인터를 옮긴다.
 
     if(extend_heap(CHUNKSIZE/WSIZE) == NULL) return -1;
+    next_fit_p = (char *)heap_list_p;
     return 0;
 }
 
@@ -116,6 +119,8 @@ static void *coalesce(void *bp){
     size_t size = GET_SIZE(HDRP(bp));
 
     if(prev_alloc && next_alloc){
+        next_fit_p = bp;
+        next_fit_p = bp;
         return bp;
     }
 
@@ -123,6 +128,7 @@ static void *coalesce(void *bp){
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
         SET(HDRP(bp), PACK(size, 0));
         SET(FTRP(bp), PACK(size, 0));
+        next_fit_p = bp;
         return bp;
     }
     if(!prev_alloc && next_alloc){
@@ -130,12 +136,14 @@ static void *coalesce(void *bp){
         SET(FTRP(bp), PACK(size, 0));
         SET(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
+        next_fit_p = bp;
         return bp;
     }
     size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(NEXT_BLKP(bp)));
     SET(HDRP(PREV_BLKP(bp)), PACK(size, 0));
     SET(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
     bp = PREV_BLKP(bp);
+    next_fit_p = bp;
     return bp;
 }
 
@@ -170,26 +178,56 @@ void *mm_malloc(size_t size)
     if((bp = find_fit(adjusted_size)) != NULL){
         // 알맞은 공간을 찾으면
         place(bp, adjusted_size);
+        next_fit_p = bp;
         return bp;
     }
 
     // 알맞은 공간이 없다면
     extend_size = MAX(adjusted_size, CHUNKSIZE);
     if((bp = extend_heap(extend_size/WSIZE)) == NULL) return NULL;
-
+    
     place(bp, adjusted_size);
+    next_fit_p = bp;
     return bp;
 }
 
 static void *find_fit(size_t adjusted_size){
 
     // first fit
-    void *bp;
-    for(bp = heap_list_p; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)){
-        // ep header == 0
-        if(!GET_ALLOC(HDRP(bp)) && (adjusted_size <= GET_SIZE(HDRP(bp)))) return bp;
+    // void *bp;
+    // for(bp = heap_list_p; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)){
+    //     // ep header == 0
+    //     if(!GET_ALLOC(HDRP(bp)) && (adjusted_size <= GET_SIZE(HDRP(bp)))) return bp;
+    // }
+    // return NULL;
+
+
+    // next fit
+
+    void *bp = next_fit_p;
+    for(bp = NEXT_BLKP(bp); GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)){
+        if(!GET_ALLOC(HDRP(bp)) && (adjusted_size <= GET_SIZE(HDRP(bp)))) {
+            next_fit_p = bp;
+            return bp;
+        }
     }
 
+    bp = heap_list_p;
+
+    // for(bp = HDRP(bp); GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)){
+    //     if(!GET_ALLOC(HDRP(bp)) && (adjusted_size <= GET_SIZE(HDRP(bp)))) {
+    //         next_fit_p = bp;
+    //         return bp;
+    //     }
+    // }
+
+    while(bp < next_fit_p){
+        bp = NEXT_BLKP(bp);
+        if(!GET_ALLOC(HDRP(bp)) && GET_SIZE(HDRP(bp)) >= adjusted_size){
+            next_fit_p = bp;
+            return bp;
+        }
+    }
 
     return NULL;
 }
